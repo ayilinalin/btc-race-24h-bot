@@ -10,9 +10,10 @@ Wrapped BTC against USDC, starting from $1,000 of paper money.
   below the rolling 240-bar high, within 0.5% of the rolling 60-bar low,
   and short-term momentum has turned up (10-bar return >= +0.1% and
   EMA(8) rising over its last 5 bars).
-- **Exit:** take profit at +4% over cost, hard stop at -1% under cost, and
-  a 1.2% trailing stop under the peak close since entry. Exits are re-sent
-  every bar while their condition holds.
+- **Exit:** take profit at +4% over cost, hard stop at -1% under cost, a
+  1.2% trailing stop under the peak close since entry, and a 600-bar
+  (10-hour) time stop. Exits are re-sent every bar while their condition
+  holds.
 - **Costs:** every round trip pays ~26 bps (4 bps fee + 2 bps slippage +
   ~7 bps impact each way at full size), so entries are rare and selective.
 
