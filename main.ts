@@ -9,8 +9,9 @@
 //     (10-bar return >= +0.1% and EMA(8) rising over its last 5 bars). It buys
 //     100% of cash in one order.
 //   * It rides the recovery with a take-profit at +4% over cost, a hard stop at
-//     -1% under cost, and a 1.2% trailing stop under the peak close since
-//     entry. Exits are re-sent every bar while their condition still holds, so
+//     -1% under cost, a 1.2% trailing stop under the peak close since entry,
+//     and a 10-hour time stop so a dead position never sits until the final
+//     flatten. Exits are re-sent every bar while their condition still holds, so
 //     a fill refused on slippage is retried on the next bar.
 //   * Long only, at most one position, at most one order per batch (one reply
 //     per batch, echoing its seq). No network, no wall clock, no randomness:
@@ -43,6 +44,7 @@ const EMA_LAG = 5; // EMA(8) now must be above EMA(8) this many bars ago
 const TP_BPS = 400n; // take profit: +4% over cost
 const SL_BPS = 100n; // stop loss: -1% under cost
 const TRAIL_BPS = 120n; // trailing stop: 1.2% under the peak close since entry
+const MAX_HOLD_BARS = 600; // time stop: exit a position held 10 hours with no exit
 const MAX_SLIPPAGE_BPS = 100; // 1% past the close the order was decided on
 
 const BPS = 10000n;
@@ -54,6 +56,7 @@ class RecoveryBot {
   #emaWarm: bigint[] = [];
   #ema: number | null = null;
   peak: bigint | null = null;
+  entrySeq: number | null = null;
 
   #pushClose(close: bigint): void {
     this.closes.push(close);
@@ -101,20 +104,24 @@ class RecoveryBot {
     const held = state.positions.get(SYMBOL);
     if (held === undefined) {
       this.peak = null;
+      this.entrySeq = null;
       if (!this.#entrySignal()) return [];
       const room = state.weightRoom(SYMBOL);
       const notional = state.cash < room ? state.cash : room;
       if (notional < BigInt(state.hello.fees.min_notional_quote_units)) return [];
       this.peak = close;
+      this.entrySeq = state.seq;
       return [{ side: 'buy', symbol: SYMBOL, notional_quote_units: notional, max_slippage_bps: MAX_SLIPPAGE_BPS }];
     }
-    // Holding: maintain the peak close and check the three exits.
+    // Holding: maintain the peak close and check the exits (take-profit,
+    // stop-loss, trailing stop, and the time stop).
     if (this.peak === null) this.peak = close;
     else if (close > this.peak) this.peak = close;
     const value = state.value(SYMBOL, held.qty);
     const retBps = held.cost === 0n ? 0n : (value * BPS) / held.cost - BPS;
     const trailHit = close * BPS <= this.peak * (BPS - TRAIL_BPS);
-    if (retBps >= TP_BPS || retBps <= -SL_BPS || trailHit) {
+    const timedOut = this.entrySeq !== null && state.seq - this.entrySeq >= MAX_HOLD_BARS;
+    if (retBps >= TP_BPS || retBps <= -SL_BPS || trailHit || timedOut) {
       return [{ side: 'sell', symbol: SYMBOL, qty: held.qty, max_slippage_bps: MAX_SLIPPAGE_BPS }];
     }
     return [];
